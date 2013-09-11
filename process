@@ -159,17 +159,17 @@ def main():
         total = 0
 
         _, num = first_preferences[party_name]
-        print "%-50s %6d %4.2f" % ("1st preference", num, num*1.0/quota)
+        print "%-50s %7d %4.2f" % ("1st preference", num, num*1.0/quota)
         total = total + num
 
         if party_name in party:
             values = party[party_name]
             for fr, num in values.iteritems():
-                print "%-50s %6d %4.2f" % (fr, num, num*1.0/quota)
+                print "%-50s %7d %4.2f" % (fr, num, num*1.0/quota)
                 total = total + num
 
         print "------"
-        print "%-50s %6d %4.2f"%("TOTAL", total, total*1.0/quota)
+        print "%-50s %7d %4.2f"%("TOTAL", total, total*1.0/quota)
 
 
 if __name__ == "__main__":
