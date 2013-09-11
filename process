@@ -37,10 +37,7 @@ def main():
     senate = soup.body.find("div", attrs={'id': 'senate'})
     divs = senate.children
     count = 0
-    for div in senate.find_all("div", recursive=False):
-        if "section" not in div.get('class'):
-            continue
-
+    for div in senate.find_all("div", attrs={'class': 'section'}, recursive=False):
         if div.h2 and div.h2.text == u"Detailed Results":
             for li in div.find_all("li"):
                 result = re_quota.match(li.text)
