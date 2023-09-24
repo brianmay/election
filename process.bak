@@ -1,0 +1,176 @@
+#!/usr/bin/python
+# Copyright 2013 Brian May
+#
+# This file is part of a project called election.
+#
+# Karaage is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# Karaage is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with Karaage  If not, see <http://www.gnu.org/licenses/>.`
+import argparse
+import urllib
+import re
+import bs4
+import sys
+
+def main():
+    parser = argparse.ArgumentParser(description='Parse Senate election results')
+    group = parser.add_mutually_exclusive_group(required=True)
+    group.add_argument("-f", "--file", help="Source file to use")
+    group.add_argument("-s", "--state", help="Source state to use",
+                choices=["act", "nsw", "nt", "qld", "sa", "tas", "vic", "wa"])
+    args = parser.parse_args()
+
+    re_quota = re.compile("Quota: (\d+) votes")
+    re_count = re.compile("Count (\d+):")
+    re_dist1 = re.compile("([\d,]+) \([\d\.]+%\) votes (\([^()]*\) )?originally from (.*) \(Ticket \d+ of \d+\) distributed to (.+) \([^()]*\) via preference \d+\.")
+    re_dist2 = re.compile("([\d,]+) \([\d\.]+%\) votes (\([^()]*\) )?originally from (.*) distributed to (.+) \([^()]*\) via preference \d+\.")
+    re_elected = re.compile(".* provisionally elected")
+    re_complete = re.compile("Distribution complete, all vacancies filled\.")
+    re_all_filled = re.compile("The last vacancy has been filled\.")
+    re_ws = re.compile("\s+", re.MULTILINE)
+
+    party = {}
+    first_preferences = {}
+    unknown = {}
+
+    if args.file:
+        handle = open(args.file)
+    elif args.state:
+        handle = urllib.urlopen("http://www.abc.net.au/news/federal-election-2013/results/senate/%s/" % args.state)
+    else:
+        raise RuntimeError("Should not happen")
+
+    soup = bs4.BeautifulSoup(handle)
+    senate = soup.body.find("div", attrs={'id': 'senate'})
+    divs = senate.children
+    count = 0
+    for div in senate.find_all("div", attrs={'class': 'section'}, recursive=False):
+        if div.h2 and div.h2.text == u"Detailed Results":
+            for li in div.find_all("li"):
+                result = re_quota.match(li.text)
+                if result is not None:
+                    print "quota", result.group(1)
+                    quota = int(result.group(1))
+            continue
+
+        if not div.h3:
+            continue
+
+        if not div.table:
+            continue
+
+        print
+        print "----"
+
+        line = div.h3.text
+        line = re_ws.sub(" ", line)
+        result = re_count.match(line)
+        if result is not None:
+            print "count", result.group(1)
+            count = count + 1
+            assert count == int(result.group(1))
+
+        scores = {}
+        table = div.table
+        for tr in table.find_all("tr", recursive=False):
+            td = tr.find_all("td", recursive=False)
+            if len(td) == 0:
+                continue
+            print [td[0].text, td[1].text, td[2].text]
+            party_name = td[0].text
+            add = int(td[1].text.replace(",", ""))
+            total = int(td[2].text.replace(",", ""))
+            scores[party_name] = (add, total)
+
+        if count == 1:
+            first_preferences = scores
+
+        totals = {}
+        for li in div.find_all("li"):
+            line = li.text
+            print
+            line = re_ws.sub(" ", line)
+            print [line]
+            match = False
+
+            result = re_dist1.match(line)
+            if result is None:
+                result = re_dist2.match(line)
+
+            if result is not None:
+                print "GOT: ", [result.group(1), result.group(3), result.group(4)]
+                num = int(result.group(1).replace(",", ""))
+                fr = result.group(3)
+                to = result.group(4)
+                if fr != to:
+                    if to not in party:
+                        party[to] = {}
+                    if fr not in party[to]:
+                        party[to][fr] = 0
+                    party[to][fr] += num
+                    if to not in totals:
+                        totals[to] = 0
+                    totals[to] += num
+                match = True
+
+            result = re_elected.match(line)
+            if result is not None:
+                match = True
+
+            result = re_complete.match(line)
+            if result is not None:
+                match = True
+
+            result = re_all_filled.match(line)
+            if result is not None:
+                match = True
+
+            if not match:
+                raise RuntimeError("Cannot parse line.")
+
+        for party_name, values in scores.iteritems():
+            add, total = values
+            if add <= 0:
+                continue
+            unknown_votes = add - totals[party_name]
+            assert unknown_votes >= 0
+            if unknown_votes == 0:
+                continue
+            print "Unknown", party_name, add, totals[party_name], unknown_votes
+            if party_name not in unknown:
+                unknown[party_name] = 0
+            unknown[party_name] += unknown_votes
+            raise NotImplementedError()
+
+
+    for party_name in first_preferences.keys():
+        print
+        print party_name
+        print "------"
+        total = 0
+
+        _, num = first_preferences[party_name]
+        print "%-50s %6d %4.2f" % ("1st preference", num, num*1.0/quota)
+        total = total + num
+
+        if party_name in party:
+            values = party[party_name]
+            for fr, num in values.iteritems():
+                print "%-50s %6d %4.2f" % (fr, num, num*1.0/quota)
+                total = total + num
+
+        print "------"
+        print "%-50s %6d %4.2f"%("TOTAL", total, total*1.0/quota)
+
+
+if __name__ == "__main__":
+    main()
